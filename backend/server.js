@@ -1,4 +1,3 @@
-Hi
 import express from "express";
 import cors from "cors";
 import { spawn } from "child_process";
