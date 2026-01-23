@@ -1,14 +1,12 @@
-// src/utils/aiResolver.js (UPDATED - Fixed Loop Line Conflict Handling)
+// src/utils/aiResolver.js (COMPLETE REPLACEMENT)
 
 export async function resolveConflictAI(conflict) {
   try {
     console.log("🔍 Conflict received:", conflict);
     
-    // Extract conflict type
     const conflictType = conflict.type;
     console.log(`📊 Conflict Type: ${conflictType}`);
     
-    // Route to appropriate resolver based on conflict type
     switch(conflictType) {
       case "SAME_BLOCK":
         return await resolveSameBlockConflict(conflict);
@@ -32,14 +30,14 @@ export async function resolveConflictAI(conflict) {
       error: err.message,
       decision: "MANUAL_INTERVENTION",
       reason: `AI resolution failed: ${err.message}. Manual intervention required.`,
-      confidence: 0
+      confidence: 0,
+      alternatives: []
     };
   }
 }
 
 /* ================================================================
    SAME BLOCK CONFLICT RESOLVER
-   Handles opposing trains on the same track
    ================================================================ */
 async function resolveSameBlockConflict(conflict) {
   console.log("🚦 Resolving SAME BLOCK conflict");
@@ -51,7 +49,6 @@ async function resolveSameBlockConflict(conflict) {
     throw new Error("Missing train objects for same block conflict");
   }
 
-  // Build payload for ML model
   const payload = {
     priority_train: conflict.trainA,
     affected_train: conflict.trainB,
@@ -93,6 +90,9 @@ async function resolveSameBlockConflict(conflict) {
     throw new Error(data.error || "ML returned unsuccessful response");
   }
 
+  // Generate alternatives for same block conflict
+  const alternatives = generateSameBlockAlternatives(data, trainA, trainB, conflict);
+
   return {
     success: true,
     conflictType: "SAME_BLOCK",
@@ -104,79 +104,59 @@ async function resolveSameBlockConflict(conflict) {
     decision: data.decision || "HOLD_TRAIN",
     probabilities: data.probabilities,
     priority_analysis: data.priority_analysis,
-    actionRequired: "HOLD",
-    detailedAction: `Stop Train ${data.reduced_train} completely until Train ${data.priority_train} clears the block`
+    alternatives: alternatives
   };
 }
 
 /* ================================================================
    LOOP LINE CONFLICT RESOLVER
-   Handles trains on same direction too close together
    ================================================================ */
 async function resolveLoopLineConflict(conflict) {
   console.log("🔁 Resolving LOOP LINE conflict");
   
-  // ⭐ Extract train objects - check all possible field names
   const leadingTrain = conflict.leadingTrainObj || conflict.trainAObj;
   const followingTrain = conflict.followingTrainObj || conflict.trainBObj;
   
-  console.log("🔍 Loop conflict data:", {
-    conflict_type: conflict.type,
-    leading_train_id: conflict.leadingTrain,
-    following_train_id: conflict.followingTrain,
-    has_leading_obj: !!leadingTrain,
-    has_following_obj: !!followingTrain,
-    leading_obj_keys: leadingTrain ? Object.keys(leadingTrain) : [],
-    following_obj_keys: followingTrain ? Object.keys(followingTrain) : []
-  });
-  
   if (!leadingTrain || !followingTrain) {
-    console.error("❌ Missing train objects:", {
-      leadingTrain: leadingTrain ? leadingTrain.train_id : "MISSING",
-      followingTrain: followingTrain ? followingTrain.train_id : "MISSING",
-      conflict_keys: Object.keys(conflict),
-      conflict: conflict
-    });
     throw new Error("Missing train objects for loop line conflict");
   }
 
-  // Determine priority
   const leadingPriority = Number(leadingTrain.priority) || 2;
   const followingPriority = Number(followingTrain.priority) || 2;
-  
-  console.log("📊 Priority comparison:", {
-    leading: { id: leadingTrain.train_id, priority: leadingPriority },
-    following: { id: followingTrain.train_id, priority: followingPriority }
-  });
   
   let priorityTrain, affectedTrain, decision, suggestedSpeed, reason;
 
   if (leadingPriority > followingPriority) {
-    // Leading train has higher priority - reroute following train
     priorityTrain = conflict.leadingTrain;
     affectedTrain = conflict.followingTrain;
     decision = "ROUTE_TO_LOOP";
     suggestedSpeed = 60;
-    reason = `Train ${priorityTrain} (Priority ${leadingPriority}) has precedence. Route Train ${affectedTrain} to LOOP LINE at reduced speed to maintain safe separation.`;
+    reason = `Train ${priorityTrain} (Priority ${leadingPriority}) has precedence. Route Train ${affectedTrain} to LOOP LINE at reduced speed.`;
   } else if (followingPriority > leadingPriority) {
-    // Following train has higher priority - speed up leading, slow following
     priorityTrain = conflict.followingTrain;
     affectedTrain = conflict.leadingTrain;
     decision = "SPEED_ADJUSTMENT";
     suggestedSpeed = Math.floor(Number(leadingTrain.max_speed) * 0.7);
-    reason = `Train ${priorityTrain} (Priority ${followingPriority}) needs to overtake. Reduce Train ${affectedTrain} speed to ${suggestedSpeed} km/h and route to LOOP LINE.`;
+    reason = `Train ${priorityTrain} (Priority ${followingPriority}) needs to overtake. Reduce Train ${affectedTrain} speed to ${suggestedSpeed} km/h.`;
   } else {
-    // Same priority - use FIFO (first in, first out)
     priorityTrain = conflict.leadingTrain;
     affectedTrain = conflict.followingTrain;
     decision = "ROUTE_TO_LOOP";
     suggestedSpeed = 60;
-    reason = `Equal priority - maintain current order. Route Train ${affectedTrain} to LOOP LINE at 60 km/h for safe following distance.`;
+    reason = `Equal priority - maintain current order. Route Train ${affectedTrain} to LOOP LINE.`;
   }
 
-  // Calculate confidence based on time gap
   const timeGap = conflict.timeDiff || 0;
   const confidence = timeGap < 2 ? 85 : timeGap < 4 ? 75 : 65;
+
+  // Generate alternatives for loop line conflict
+  const alternatives = generateLoopLineAlternatives(
+    priorityTrain, 
+    affectedTrain, 
+    leadingTrain, 
+    followingTrain,
+    conflict
+  );
 
   return {
     success: true,
@@ -184,19 +164,16 @@ async function resolveLoopLineConflict(conflict) {
     priority_train: priorityTrain,
     reduced_train: affectedTrain,
     suggested_speed: suggestedSpeed,
+    suggested_delay: 5,
     reason: reason,
     confidence: confidence,
     decision: decision,
-    actionRequired: "REROUTE",
-    detailedAction: `Divert Train ${affectedTrain} to LOOP LINE and maintain ${suggestedSpeed} km/h speed`,
-    timeGap: timeGap,
-    recommendedGap: 5
+    alternatives: alternatives
   };
 }
 
 /* ================================================================
    JUNCTION CONFLICT RESOLVER
-   Handles multiple trains converging at junction
    ================================================================ */
 async function resolveJunctionConflict(conflict) {
   console.log("🔀 Resolving JUNCTION conflict");
@@ -208,20 +185,16 @@ async function resolveJunctionConflict(conflict) {
     throw new Error("Missing train objects for junction conflict");
   }
 
-  // Get junction details
-  const junctionId = conflict.junction_id;
   const clearanceNeeded = conflict.clearanceNeeded || 5;
   const timeGap = conflict.timeGap || 0;
   const severity = conflict.severity || "MEDIUM";
 
-  // Determine priority based on multiple factors
   const priority1 = Number(train1.priority) || 2;
   const priority2 = Number(train2.priority) || 2;
   
   const passengers1 = Number(train1.passengers) || 0;
   const passengers2 = Number(train2.passengers) || 0;
   
-  // Calculate priority score
   const score1 = (priority1 * 100) + (passengers1 * 0.1);
   const score2 = (priority2 * 100) + (passengers2 * 0.1);
 
@@ -231,16 +204,15 @@ async function resolveJunctionConflict(conflict) {
     priorityTrain = conflict.train1;
     delayedTrain = conflict.train2;
     entryDelay = Math.max(clearanceNeeded - timeGap, 0);
-    reason = `Train ${priorityTrain} (Priority ${priority1}, ${passengers1} passengers) gets junction entry first. Train ${delayedTrain} must wait ${Math.ceil(entryDelay)} minutes for junction clearance.`;
+    reason = `Train ${priorityTrain} (Priority ${priority1}, ${passengers1} passengers) gets junction entry first.`;
   } else if (score2 > score1) {
     priorityTrain = conflict.train2;
     delayedTrain = conflict.train1;
     entryDelay = Math.max(clearanceNeeded - timeGap, 0);
-    reason = `Train ${priorityTrain} (Priority ${priority2}, ${passengers2} passengers) gets junction entry first. Train ${delayedTrain} must wait ${Math.ceil(entryDelay)} minutes for junction clearance.`;
+    reason = `Train ${priorityTrain} (Priority ${priority2}, ${passengers2} passengers) gets junction entry first.`;
   } else {
-    // Equal scores - use arrival time (first come, first served)
-    const arrivalTime1 = conflict.train1Obj.arrival || 0;
-    const arrivalTime2 = conflict.train2Obj.arrival || 0;
+    const arrivalTime1 = train1.arrival || 0;
+    const arrivalTime2 = train2.arrival || 0;
     
     if (arrivalTime1 < arrivalTime2) {
       priorityTrain = conflict.train1;
@@ -250,13 +222,22 @@ async function resolveJunctionConflict(conflict) {
       delayedTrain = conflict.train1;
     }
     entryDelay = Math.max(clearanceNeeded - timeGap, 0);
-    reason = `Equal priority - first arrival gets preference. Train ${delayedTrain} must wait ${Math.ceil(entryDelay)} minutes for junction clearance.`;
+    reason = `Equal priority - first arrival gets preference.`;
   }
 
-  // Calculate confidence based on severity
   const confidence = severity === "CRITICAL" ? 95 : 
                     severity === "HIGH" ? 85 : 
                     severity === "MEDIUM" ? 75 : 65;
+
+  // Generate alternatives for junction conflict
+  const alternatives = generateJunctionAlternatives(
+    priorityTrain,
+    delayedTrain,
+    train1,
+    train2,
+    conflict,
+    entryDelay
+  );
 
   return {
     success: true,
@@ -268,26 +249,17 @@ async function resolveJunctionConflict(conflict) {
     reason: reason,
     confidence: confidence,
     decision: "SEQUENCE_AT_JUNCTION",
-    actionRequired: "TIMED_ENTRY",
-    detailedAction: `Train ${priorityTrain} enters ${junctionId} first. Train ${delayedTrain} holds at approach signal for ${Math.ceil(entryDelay)} minutes clearance.`,
-    junctionId: junctionId,
-    clearanceRequired: clearanceNeeded,
-    currentGap: timeGap,
-    severity: severity,
-    entrySequence: [
-      { train: priorityTrain, action: "PROCEED", note: "Clear to enter junction" },
-      { train: delayedTrain, action: "HOLD", delay: Math.ceil(entryDelay), note: `Wait ${Math.ceil(entryDelay)} min for clearance` }
-    ]
+    junctionId: conflict.junction_id,
+    alternatives: alternatives
   };
 }
 
 /* ================================================================
-   DEFAULT CONFLICT RESOLVER (Fallback)
+   DEFAULT CONFLICT RESOLVER
    ================================================================ */
 async function resolveDefaultConflict(conflict) {
   console.log("⚙️ Using default conflict resolver");
   
-  // Extract train IDs from different conflict structures
   let trainA, trainB, trainAObj, trainBObj;
   
   if (conflict.trainA && conflict.trainB) {
@@ -313,7 +285,6 @@ async function resolveDefaultConflict(conflict) {
     throw new Error("Missing train data objects");
   }
 
-  // Simple priority-based resolution
   const priorityA = Number(trainAObj.priority) || 2;
   const priorityB = Number(trainBObj.priority) || 2;
 
@@ -326,7 +297,8 @@ async function resolveDefaultConflict(conflict) {
       suggested_speed: 60,
       decision: "REDUCE_SPEED",
       reason: `Train ${trainA} has higher priority (${priorityA} vs ${priorityB})`,
-      confidence: 70
+      confidence: 70,
+      alternatives: []
     };
   } else {
     return {
@@ -337,7 +309,182 @@ async function resolveDefaultConflict(conflict) {
       suggested_speed: 60,
       decision: "REDUCE_SPEED",
       reason: `Train ${trainB} has higher priority (${priorityB} vs ${priorityA})`,
-      confidence: 70
+      confidence: 70,
+      alternatives: []
     };
   }
+}
+
+/* ================================================================
+   ALTERNATIVE GENERATORS
+   ================================================================ */
+
+function generateSameBlockAlternatives(aiData, trainA, trainB, conflict) {
+  const alternatives = [];
+  const priorityTrain = aiData.priority_train;
+  const affectedTrain = aiData.reduced_train;
+
+  // Alternative 1: Hold Both Trains (Conservative)
+  alternatives.push({
+    option: "A",
+    title: "Hold Both Trains (Maximum Safety)",
+    priority_train: priorityTrain,
+    reduced_train: affectedTrain,
+    decision: "HOLD_BOTH_TRAINS",
+    suggested_speed: 0,
+    suggested_delay: 10,
+    confidence: 95,
+    reason: "Stop both trains completely - manually sequence after full stop. Maximum safety buffer.",
+    tradeoff: "8-12 min delay for both trains",
+    risk: "Very Low",
+    color: "#7c3aed"
+  });
+
+  // Alternative 2: Speed Reduction
+  alternatives.push({
+    option: "B",
+    title: `Reduce Speed of Train ${affectedTrain}`,
+    priority_train: priorityTrain,
+    reduced_train: affectedTrain,
+    decision: "REDUCE_SPEED",
+    suggested_speed: 45,
+    suggested_delay: 4,
+    confidence: 75,
+    reason: `Slow Train ${affectedTrain} to 45 km/h while Train ${priorityTrain} maintains speed.`,
+    tradeoff: "3-5 min delay for affected train",
+    risk: "Medium - requires speed monitoring",
+    color: "#d97706"
+  });
+
+  // Alternative 3: Priority Reversal (if close)
+  const priorityDiff = Math.abs(
+    (Number(trainA.priority) || 2) - (Number(trainB.priority) || 2)
+  );
+  
+  if (priorityDiff <= 1) {
+    alternatives.push({
+      option: "C",
+      title: `Reverse Priority - Favor Train ${affectedTrain}`,
+      priority_train: affectedTrain,
+      reduced_train: priorityTrain,
+      decision: "REVERSE_PRIORITY",
+      suggested_speed: 50,
+      suggested_delay: 3,
+      confidence: 65,
+      reason: `Give priority to Train ${affectedTrain} instead. Train ${priorityTrain} slows down.`,
+      tradeoff: "Different train gets delayed",
+      risk: "Medium - only valid if priorities are close",
+      color: "#dc2626"
+    });
+  }
+
+  return alternatives;
+}
+
+function generateLoopLineAlternatives(priorityTrain, affectedTrain, leadingTrain, followingTrain, conflict) {
+  const alternatives = [];
+
+  // Alternative 1: Hold Both
+  alternatives.push({
+    option: "A",
+    title: "Hold Both Trains (Conservative)",
+    priority_train: priorityTrain,
+    reduced_train: affectedTrain,
+    decision: "HOLD_BOTH_TRAINS",
+    suggested_speed: 0,
+    suggested_delay: 10,
+    confidence: 95,
+    reason: "Stop both trains - manually sequence with maximum gap.",
+    tradeoff: "8-12 min delay for both",
+    risk: "Very Low",
+    color: "#7c3aed"
+  });
+
+  // Alternative 2: Reroute to Loop
+  alternatives.push({
+    option: "B",
+    title: `Reroute Train ${affectedTrain} to Loop Line`,
+    priority_train: priorityTrain,
+    reduced_train: affectedTrain,
+    decision: "ROUTE_TO_LOOP",
+    suggested_speed: 60,
+    suggested_delay: 5,
+    confidence: 85,
+    reason: `Divert Train ${affectedTrain} to alternate loop line route.`,
+    tradeoff: "4-6 min longer route",
+    risk: "Low - completely separates paths",
+    color: "#0284c7"
+  });
+
+  // Alternative 3: Gradual Speed Reduction
+  alternatives.push({
+    option: "C",
+    title: `Gradual Speed Reduction`,
+    priority_train: priorityTrain,
+    reduced_train: affectedTrain,
+    decision: "REDUCE_SPEED",
+    suggested_speed: 55,
+    suggested_delay: 3,
+    confidence: 70,
+    reason: `Reduce Train ${affectedTrain} speed gradually to maintain safe gap.`,
+    tradeoff: "2-4 min delay",
+    risk: "Medium - requires continuous monitoring",
+    color: "#d97706"
+  });
+
+  return alternatives;
+}
+
+function generateJunctionAlternatives(priorityTrain, delayedTrain, train1, train2, conflict, entryDelay) {
+  const alternatives = [];
+
+  // Alternative 1: Hold Delayed Train
+  alternatives.push({
+    option: "A",
+    title: `Hold Train ${delayedTrain} at Approach`,
+    priority_train: priorityTrain,
+    reduced_train: delayedTrain,
+    decision: "SEQUENCE_AT_JUNCTION",
+    suggested_speed: 0,
+    suggested_delay: Math.ceil(entryDelay) + 2,
+    confidence: 90,
+    reason: `Stop Train ${delayedTrain} at approach signal. Proceed after ${Math.ceil(entryDelay) + 2} min clearance.`,
+    tradeoff: `${Math.ceil(entryDelay) + 2} min delay`,
+    risk: "Low",
+    color: "#16a34a"
+  });
+
+  // Alternative 2: Speed Reduction Before Junction
+  alternatives.push({
+    option: "B",
+    title: `Slow Train ${delayedTrain} Before Junction`,
+    priority_train: priorityTrain,
+    reduced_train: delayedTrain,
+    decision: "REDUCE_SPEED",
+    suggested_speed: 40,
+    suggested_delay: Math.ceil(entryDelay),
+    confidence: 75,
+    reason: `Reduce Train ${delayedTrain} speed to arrive after clearance window.`,
+    tradeoff: `${Math.ceil(entryDelay)} min delay`,
+    risk: "Medium - timing critical",
+    color: "#d97706"
+  });
+
+  // Alternative 3: Hold Both (Maximum Safety)
+  alternatives.push({
+    option: "C",
+    title: "Hold Both Trains (Maximum Safety)",
+    priority_train: priorityTrain,
+    reduced_train: delayedTrain,
+    decision: "HOLD_BOTH_TRAINS",
+    suggested_speed: 0,
+    suggested_delay: 12,
+    confidence: 95,
+    reason: "Stop both trains before junction - manually sequence with extra buffer.",
+    tradeoff: "10-15 min delay for both",
+    risk: "Very Low",
+    color: "#7c3aed"
+  });
+
+  return alternatives;
 }

@@ -1,4 +1,4 @@
-// src/components/Conflicts.jsx (SIMPLIFIED - Suggestion, Options, Risks)
+// src/components/Conflicts.jsx (COMPLETE REPLACEMENT)
 import { useState, useEffect } from "react";
 import { detectBlockConflicts, getSeverityColor } from "../utils/blockConflictDetector";
 import { detectLoopLineConflicts } from "../utils/loopLineDetector";
@@ -22,6 +22,13 @@ export default function Conflicts({
   const [junctionConflicts, setJunctionConflicts] = useState([]);
   const [recentlyResolved, setRecentlyResolved] = useState([]);
 
+  // Track previous conflict counts to detect new conflicts
+  const [prevConflictCounts, setPrevConflictCounts] = useState({
+    block: 0,
+    loop: 0,
+    junction: 0
+  });
+
   // Detect conflicts
   useEffect(() => {
     try {
@@ -36,9 +43,27 @@ export default function Conflicts({
         setError(null);
 
         if (onUpdateConflictCounts) {
-          onUpdateConflictCounts('block', blockConflicts.length);
-          onUpdateConflictCounts('loop', loopConflicts.length);
-          onUpdateConflictCounts('junction', junctionConflictsData.length);
+          // Only count NEW conflicts (increment by difference)
+          const newBlockConflicts = Math.max(0, blockConflicts.length - prevConflictCounts.block);
+          const newLoopConflicts = Math.max(0, loopConflicts.length - prevConflictCounts.loop);
+          const newJunctionConflicts = Math.max(0, junctionConflictsData.length - prevConflictCounts.junction);
+          
+          if (newBlockConflicts > 0) {
+            onUpdateConflictCounts('block', newBlockConflicts);
+          }
+          if (newLoopConflicts > 0) {
+            onUpdateConflictCounts('loop', newLoopConflicts);
+          }
+          if (newJunctionConflicts > 0) {
+            onUpdateConflictCounts('junction', newJunctionConflicts);
+          }
+          
+          // Update previous counts
+          setPrevConflictCounts({
+            block: blockConflicts.length,
+            loop: loopConflicts.length,
+            junction: junctionConflictsData.length
+          });
         }
       } else {
         setSameBlockConflicts([]);
@@ -250,77 +275,18 @@ export default function Conflicts({
             const isLoading = loadingConflictId === conflictId;
 
             return (
-              <div 
-                key={i} 
-                style={{
-                  background: "#fef2f2",
-                  border: `2px solid ${getSeverityColor(conflict.severity)}`,
-                  padding: "14px",
-                  borderRadius: "8px",
-                  marginBottom: "12px"
-                }}
-              >
-                <div style={{ 
-                  display: "flex", 
-                  justifyContent: "space-between",
-                  alignItems: "start",
-                  marginBottom: "8px"
-                }}>
-                  <div>
-                    <div style={{ 
-                      fontSize: "12px", 
-                      fontWeight: "600",
-                      color: getSeverityColor(conflict.severity),
-                      marginBottom: "4px"
-                    }}>
-                      Block: {conflict.block_id} | Severity: {conflict.severity}
-                    </div>
-                    <div style={{ fontSize: "14px", fontWeight: "500" }}>
-                      Train A: <strong>{conflict.trainA}</strong> ↔ 
-                      Train B: <strong>{conflict.trainB}</strong>
-                    </div>
-                  </div>
-                  <div style={{ 
-                    background: getSeverityColor(conflict.severity),
-                    color: "white",
-                    padding: "4px 10px",
-                    borderRadius: "6px",
-                    fontSize: "12px",
-                    fontWeight: "600"
-                  }}>
-                    {conflict.timeDiff} min gap
-                  </div>
-                </div>
-
-                {!aiResult && (
-                  <button 
-                    onClick={() => handleResolve(conflict, "SAME_BLOCK", conflictId)}
-                    disabled={isLoading}
-                    style={{
-                      background: isLoading ? "#9ca3af" : "#6366f1",
-                      color: "white",
-                      border: "none",
-                      padding: "8px 16px",
-                      borderRadius: "6px",
-                      cursor: isLoading ? "not-allowed" : "pointer",
-                      fontSize: "14px",
-                      fontWeight: "500",
-                      opacity: isLoading ? 0.5 : 1
-                    }}
-                  >
-                    {isLoading ? "🔄 Processing..." : "🤖 Resolve with AI"}
-                  </button>
-                )}
-
-                {aiResult && aiResult.success && (
-                  <SimplifiedAIResultDisplay
-                    aiResult={aiResult}
-                    conflict={conflict}
-                    onAccept={() => handleAccept("SAME_BLOCK", conflictId, aiResult)}
-                    onReject={() => handleReject("SAME_BLOCK", conflictId, aiResult)}
-                  />
-                )}
-              </div>
+              <ConflictCard
+                key={i}
+                conflict={conflict}
+                conflictId={conflictId}
+                conflictType="SAME_BLOCK"
+                aiResult={aiResult}
+                isLoading={isLoading}
+                onResolve={() => handleResolve(conflict, "SAME_BLOCK", conflictId)}
+                onAccept={() => handleAccept("SAME_BLOCK", conflictId, aiResult)}
+                onReject={() => handleReject("SAME_BLOCK", conflictId, aiResult)}
+                getSeverityColor={getSeverityColor}
+              />
             );
           })
         )}
@@ -358,58 +324,18 @@ export default function Conflicts({
             const isLoading = loadingConflictId === conflictId;
 
             return (
-              <div
+              <ConflictCard
                 key={i}
-                style={{
-                  background: "#eff6ff",
-                  border: "2px solid #60a5fa",
-                  padding: "14px",
-                  borderRadius: "8px",
-                  marginBottom: "12px"
-                }}
-              >
-                <div style={{ marginBottom: "8px" }}>
-                  <div style={{ fontSize: "12px", fontWeight: "600", color: "#1e40af" }}>
-                    Block: {conflict.block_id}
-                  </div>
-                  <div style={{ fontSize: "14px", marginTop: "4px" }}>
-                    <strong>Leading:</strong> Train {conflict.leadingTrain}
-                    <br />
-                    <strong>Following:</strong> Train {conflict.followingTrain}
-                    <br />
-                    <strong>Gap:</strong> {conflict.timeDiff} minutes
-                  </div>
-                </div>
-
-                {!aiResult && (
-                  <button 
-                    onClick={() => handleResolve(conflict, "LOOP_LINE", conflictId)}
-                    disabled={isLoading}
-                    style={{
-                      background: isLoading ? "#9ca3af" : "#6366f1",
-                      color: "white",
-                      border: "none",
-                      padding: "8px 16px",
-                      borderRadius: "6px",
-                      cursor: isLoading ? "not-allowed" : "pointer",
-                      fontSize: "14px",
-                      fontWeight: "500",
-                      opacity: isLoading ? 0.5 : 1
-                    }}
-                  >
-                    {isLoading ? "🔄 Processing..." : "🤖 Resolve with AI"}
-                  </button>
-                )}
-
-                {aiResult && aiResult.success && (
-                  <SimplifiedAIResultDisplay
-                    aiResult={aiResult}
-                    conflict={conflict}
-                    onAccept={() => handleAccept("LOOP_LINE", conflictId, aiResult)}
-                    onReject={() => handleReject("LOOP_LINE", conflictId, aiResult)}
-                  />
-                )}
-              </div>
+                conflict={conflict}
+                conflictId={conflictId}
+                conflictType="LOOP_LINE"
+                aiResult={aiResult}
+                isLoading={isLoading}
+                onResolve={() => handleResolve(conflict, "LOOP_LINE", conflictId)}
+                onAccept={() => handleAccept("LOOP_LINE", conflictId, aiResult)}
+                onReject={() => handleReject("LOOP_LINE", conflictId, aiResult)}
+                getSeverityColor={() => "#60a5fa"}
+              />
             );
           })
         )}
@@ -447,87 +373,24 @@ export default function Conflicts({
             const isLoading = loadingConflictId === conflictId;
 
             return (
-              <div 
-                key={i} 
-                style={{
-                  background: "#fef3c7",
-                  border: `2px solid ${getJunctionSeverityColor(conflict.severity)}`,
-                  padding: "14px",
-                  borderRadius: "8px",
-                  marginBottom: "12px"
-                }}
-              >
-                <div style={{ 
-                  display: "flex", 
-                  justifyContent: "space-between",
-                  alignItems: "start",
-                  marginBottom: "8px"
-                }}>
-                  <div>
-                    <div style={{ 
-                      fontSize: "12px", 
-                      fontWeight: "600",
-                      color: getJunctionSeverityColor(conflict.severity),
-                      marginBottom: "4px"
-                    }}>
-                      Junction: {conflict.junction_id} | Severity: {conflict.severity}
-                    </div>
-                    <div style={{ fontSize: "14px", fontWeight: "500" }}>
-                      Train 1: <strong>{conflict.train1}</strong> (from {conflict.route1})
-                      <br />
-                      Train 2: <strong>{conflict.train2}</strong> (from {conflict.route2})
-                    </div>
-                  </div>
-                  <div style={{ 
-                    background: getJunctionSeverityColor(conflict.severity),
-                    color: "white",
-                    padding: "4px 10px",
-                    borderRadius: "6px",
-                    fontSize: "12px",
-                    fontWeight: "600"
-                  }}>
-                    {conflict.timeGap} min gap
-                    <div style={{ fontSize: "10px", opacity: 0.9 }}>
-                      (needs {conflict.clearanceNeeded} min)
-                    </div>
-                  </div>
-                </div>
-
-                {!aiResult && (
-                  <button 
-                    onClick={() => handleResolve(conflict, "JUNCTION", conflictId)}
-                    disabled={isLoading}
-                    style={{
-                      background: isLoading ? "#9ca3af" : "#6366f1",
-                      color: "white",
-                      border: "none",
-                      padding: "8px 16px",
-                      borderRadius: "6px",
-                      cursor: isLoading ? "not-allowed" : "pointer",
-                      fontSize: "14px",
-                      fontWeight: "500",
-                      opacity: isLoading ? 0.5 : 1
-                    }}
-                  >
-                    {isLoading ? "🔄 Processing..." : "🤖 Resolve with AI"}
-                  </button>
-                )}
-
-                {aiResult && aiResult.success && (
-                  <SimplifiedAIResultDisplay
-                    aiResult={aiResult}
-                    conflict={conflict}
-                    onAccept={() => handleAccept("JUNCTION", conflictId, aiResult)}
-                    onReject={() => handleReject("JUNCTION", conflictId, aiResult)}
-                  />
-                )}
-              </div>
+              <ConflictCard
+                key={i}
+                conflict={conflict}
+                conflictId={conflictId}
+                conflictType="JUNCTION"
+                aiResult={aiResult}
+                isLoading={isLoading}
+                onResolve={() => handleResolve(conflict, "JUNCTION", conflictId)}
+                onAccept={() => handleAccept("JUNCTION", conflictId, aiResult)}
+                onReject={() => handleReject("JUNCTION", conflictId, aiResult)}
+                getSeverityColor={getJunctionSeverityColor}
+              />
             );
           })
         )}
       </div>
 
-      {/* RECENTLY RESOLVED CONFLICTS */}
+      {/* RECENTLY RESOLVED */}
       {recentlyResolved.length > 0 && (
         <div style={{ marginTop: "24px" }}>
           <h4 style={{ 
@@ -586,35 +449,151 @@ export default function Conflicts({
               </div>
             ))}
           </div>
-
-          <div style={{
-            marginTop: "8px",
-            fontSize: "12px",
-            color: "#16a34a",
-            fontStyle: "italic"
-          }}>
-            ℹ️ Trains will be available for re-evaluation after 5 minutes
-          </div>
         </div>
       )}
     </div>
   );
 }
 
-/* ⭐ SIMPLIFIED AI RESULT DISPLAY - Only Suggestion, Options, and Risks */
-function SimplifiedAIResultDisplay({ aiResult, conflict, onAccept, onReject }) {
-  const [activeTab, setActiveTab] = useState("suggestion");
+/* ================================================================
+   CONFLICT CARD COMPONENT
+   ================================================================ */
+function ConflictCard({ 
+  conflict, 
+  conflictId, 
+  conflictType, 
+  aiResult, 
+  isLoading, 
+  onResolve, 
+  onAccept, 
+  onReject,
+  getSeverityColor 
+}) {
+  const [selectedAlternative, setSelectedAlternative] = useState(null);
+
+  const severityColor = conflict.severity 
+    ? getSeverityColor(conflict.severity) 
+    : "#60a5fa";
 
   return (
     <div 
       style={{
-        marginTop: "12px",
-        background: "#f0fdf4",
-        border: "2px solid #4ade80",
+        background: "#fef2f2",
+        border: `2px solid ${severityColor}`,
+        padding: "14px",
         borderRadius: "8px",
-        overflow: "hidden"
+        marginBottom: "12px"
       }}
     >
+      {/* Conflict Info */}
+      <ConflictInfo conflict={conflict} conflictType={conflictType} severityColor={severityColor} />
+
+      {/* Resolve Button */}
+      {!aiResult && (
+        <button 
+          onClick={onResolve}
+          disabled={isLoading}
+          style={{
+            background: isLoading ? "#9ca3af" : "#6366f1",
+            color: "white",
+            border: "none",
+            padding: "8px 16px",
+            borderRadius: "6px",
+            cursor: isLoading ? "not-allowed" : "pointer",
+            fontSize: "14px",
+            fontWeight: "500",
+            opacity: isLoading ? 0.5 : 1
+          }}
+        >
+          {isLoading ? "🔄 Processing..." : "🤖 Resolve with AI"}
+        </button>
+      )}
+
+      {/* AI Result Display */}
+      {aiResult && aiResult.success && (
+        <AIResultDisplay
+          aiResult={aiResult}
+          selectedAlternative={selectedAlternative}
+          setSelectedAlternative={setSelectedAlternative}
+          onAccept={onAccept}
+          onReject={onReject}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ================================================================
+   CONFLICT INFO
+   ================================================================ */
+function ConflictInfo({ conflict, conflictType, severityColor }) {
+  if (conflictType === "SAME_BLOCK") {
+    return (
+      <div style={{ marginBottom: "8px" }}>
+        <div style={{ fontSize: "12px", fontWeight: "600", color: severityColor }}>
+          Block: {conflict.block_id} | Severity: {conflict.severity}
+        </div>
+        <div style={{ fontSize: "14px", fontWeight: "500" }}>
+          Train A: <strong>{conflict.trainA}</strong> ↔ Train B: <strong>{conflict.trainB}</strong>
+        </div>
+        <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
+          Time Gap: {conflict.timeDiff} minutes
+        </div>
+      </div>
+    );
+  } else if (conflictType === "LOOP_LINE") {
+    return (
+      <div style={{ marginBottom: "8px" }}>
+        <div style={{ fontSize: "12px", fontWeight: "600", color: severityColor }}>
+          Block: {conflict.block_id}
+        </div>
+        <div style={{ fontSize: "14px", marginTop: "4px" }}>
+          <strong>Leading:</strong> Train {conflict.leadingTrain}
+          <br />
+          <strong>Following:</strong> Train {conflict.followingTrain}
+          <br />
+          <strong>Gap:</strong> {conflict.timeDiff} minutes
+        </div>
+      </div>
+    );
+  } else if (conflictType === "JUNCTION") {
+    return (
+      <div style={{ marginBottom: "8px" }}>
+        <div style={{ fontSize: "12px", fontWeight: "600", color: severityColor }}>
+          Junction: {conflict.junction_id} | Severity: {conflict.severity}
+        </div>
+        <div style={{ fontSize: "14px", fontWeight: "500" }}>
+          Train 1: <strong>{conflict.train1}</strong> (from {conflict.route1})
+          <br />
+          Train 2: <strong>{conflict.train2}</strong> (from {conflict.route2})
+        </div>
+        <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
+          Time Gap: {conflict.timeGap} min (needs {conflict.clearanceNeeded} min)
+        </div>
+      </div>
+    );
+  }
+  
+  return null;
+}
+
+/* ================================================================
+   AI RESULT DISPLAY WITH ALTERNATIVES
+   ================================================================ */
+function AIResultDisplay({ aiResult, selectedAlternative, setSelectedAlternative, onAccept, onReject }) {
+  const [activeTab, setActiveTab] = useState("recommendation");
+
+  // Determine which resolution to execute
+  const resolutionToExecute = selectedAlternative || aiResult;
+
+  return (
+    <div style={{
+      marginTop: "12px",
+      background: "#f0fdf4",
+      border: "2px solid #4ade80",
+      borderRadius: "8px",
+      overflow: "hidden"
+    }}>
       {/* Header */}
       <div style={{
         background: "linear-gradient(135deg, #16a34a 0%, #15803d 100%)",
@@ -628,7 +607,9 @@ function SimplifiedAIResultDisplay({ aiResult, conflict, onAccept, onReject }) {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ fontSize: "20px" }}>🤖</span>
-            <strong style={{ fontSize: "15px" }}>AI Recommendation</strong>
+            <strong style={{ fontSize: "15px" }}>
+              {selectedAlternative ? `Alternative ${selectedAlternative.option} Selected` : "AI Recommendation"}
+            </strong>
           </div>
           <div style={{
             background: "rgba(255,255,255,0.2)",
@@ -637,7 +618,7 @@ function SimplifiedAIResultDisplay({ aiResult, conflict, onAccept, onReject }) {
             fontSize: "12px",
             fontWeight: "600"
           }}>
-            {aiResult.confidence}% Confidence
+            {resolutionToExecute.confidence}% Confidence
           </div>
         </div>
       </div>
@@ -649,35 +630,32 @@ function SimplifiedAIResultDisplay({ aiResult, conflict, onAccept, onReject }) {
         background: "white"
       }}>
         <TabButton 
-          active={activeTab === "suggestion"}
-          onClick={() => setActiveTab("suggestion")}
+          active={activeTab === "recommendation"}
+          onClick={() => setActiveTab("recommendation")}
           icon="💡"
-          label="AI Suggestion"
+          label="AI Recommendation"
         />
-        <TabButton 
-          active={activeTab === "alternatives"}
-          onClick={() => setActiveTab("alternatives")}
-          icon="🔄"
-          label="Other Options"
-        />
-        <TabButton 
-          active={activeTab === "risks"}
-          onClick={() => setActiveTab("risks")}
-          icon="⚠️"
-          label="Risk Mitigation"
-        />
+        {aiResult.alternatives && aiResult.alternatives.length > 0 && (
+          <TabButton 
+            active={activeTab === "alternatives"}
+            onClick={() => setActiveTab("alternatives")}
+            icon="🔄"
+            label={`Alternatives (${aiResult.alternatives.length})`}
+          />
+        )}
       </div>
 
       {/* Tab Content */}
-      <div style={{ padding: "16px", background: "white", minHeight: "200px" }}>
-        {activeTab === "suggestion" && (
-          <SuggestionTab aiResult={aiResult} conflict={conflict} />
+      <div style={{ padding: "16px", background: "white", minHeight: "150px" }}>
+        {activeTab === "recommendation" && (
+          <RecommendationTab aiResult={aiResult} />
         )}
         {activeTab === "alternatives" && (
-          <AlternativesTab aiResult={aiResult} conflict={conflict} />
-        )}
-        {activeTab === "risks" && (
-          <RisksTab aiResult={aiResult} />
+          <AlternativesTab 
+            aiResult={aiResult}
+            selectedAlternative={selectedAlternative}
+            setSelectedAlternative={setSelectedAlternative}
+          />
         )}
       </div>
 
@@ -690,7 +668,7 @@ function SimplifiedAIResultDisplay({ aiResult, conflict, onAccept, onReject }) {
         gap: "8px" 
       }}>
         <button
-          onClick={onAccept}
+          onClick={() => onAccept()}
           style={{
             background: "#16a34a",
             color: "white",
@@ -700,13 +678,10 @@ function SimplifiedAIResultDisplay({ aiResult, conflict, onAccept, onReject }) {
             cursor: "pointer",
             fontSize: "14px",
             fontWeight: "600",
-            flex: 1,
-            transition: "all 0.2s"
+            flex: 1
           }}
-          onMouseEnter={(e) => e.target.style.background = "#15803d"}
-          onMouseLeave={(e) => e.target.style.background = "#16a34a"}
         >
-          ✅ Accept & Execute
+          ✅ Execute {selectedAlternative ? `Alternative ${selectedAlternative.option}` : "AI Recommendation"}
         </button>
 
         <button
@@ -720,11 +695,8 @@ function SimplifiedAIResultDisplay({ aiResult, conflict, onAccept, onReject }) {
             cursor: "pointer",
             fontSize: "14px",
             fontWeight: "600",
-            flex: 1,
-            transition: "all 0.2s"
+            flex: 1
           }}
-          onMouseEnter={(e) => e.target.style.background = "#b91c1c"}
-          onMouseLeave={(e) => e.target.style.background = "#dc2626"}
         >
           ❌ Reject
         </button>
@@ -733,7 +705,9 @@ function SimplifiedAIResultDisplay({ aiResult, conflict, onAccept, onReject }) {
   );
 }
 
-// Tab Button Component
+/* ================================================================
+   TAB COMPONENTS
+   ================================================================ */
 function TabButton({ active, onClick, icon, label }) {
   return (
     <button
@@ -748,17 +722,10 @@ function TabButton({ active, onClick, icon, label }) {
         cursor: "pointer",
         fontSize: "13px",
         fontWeight: active ? "600" : "500",
-        transition: "all 0.2s",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         gap: "6px"
-      }}
-      onMouseEnter={(e) => {
-        if (!active) e.target.style.background = "#f8fafc";
-      }}
-      onMouseLeave={(e) => {
-        if (!active) e.target.style.background = "transparent";
       }}
     >
       <span>{icon}</span>
@@ -767,195 +734,298 @@ function TabButton({ active, onClick, icon, label }) {
   );
 }
 
-// Suggestion Tab
-function SuggestionTab({ aiResult, conflict }) {
+function RecommendationTab({ aiResult }) {
+  // Get detailed action steps based on decision type
+  const getActionSteps = () => {
+    switch(aiResult.decision) {
+      case "SEQUENCE_AT_JUNCTION":
+        return [
+          `🔒 Lock junction points for Train ${aiResult.priority_train}`,
+          `🟢 Set GREEN signal for Train ${aiResult.priority_train} to enter junction`,
+          `🟡 Set YELLOW signal for Train ${aiResult.reduced_train} - hold at approach`,
+          `⏱️ Train ${aiResult.reduced_train} waits ${aiResult.suggested_delay || 3} minutes for clearance`,
+          `✅ After clearance: GREEN signal to Train ${aiResult.reduced_train}`,
+          `📡 Radio notifications sent to both train drivers`
+        ];
+      
+      case "HOLD_TRAIN":
+        return [
+          `🔴 Set RED signal immediately for Train ${aiResult.reduced_train}`,
+          `📻 Send radio notification: "Stop at next signal - priority conflict"`,
+          `🟢 Train ${aiResult.priority_train} proceeds normally`,
+          `⏱️ Train ${aiResult.reduced_train} holds until block is clear`,
+          `⏲️ Estimated hold time: ${aiResult.suggested_delay || 5} minutes`,
+          `✅ Once clear: Signal changes to GREEN automatically`
+        ];
+      
+      case "HOLD_BOTH_TRAINS":
+        return [
+          `🔴 Set RED signal for Train ${aiResult.priority_train}`,
+          `🔴 Set RED signal for Train ${aiResult.reduced_train}`,
+          `📻 Radio notification to both drivers: "Hold for manual sequencing"`,
+          `⏱️ Both trains stop at safe positions`,
+          `👤 Section controller manually sequences after full stop`,
+          `🟢 Train ${aiResult.priority_train} proceeds first (higher priority)`,
+          `⏲️ Total delay: ~${aiResult.suggested_delay || 10} minutes for both trains`
+        ];
+      
+      case "REDUCE_SPEED":
+        return [
+          `📉 Speed restriction signal sent to Train ${aiResult.reduced_train}`,
+          `🎯 Target speed: ${aiResult.suggested_speed} km/h`,
+          `📻 Radio: "Reduce speed to ${aiResult.suggested_speed} km/h - conflict resolution"`,
+          `📊 Track sensors monitor compliance`,
+          `🟢 Train ${aiResult.priority_train} maintains current speed`,
+          `⏱️ Expected delay: ${aiResult.suggested_delay || 3} minutes`,
+          `✅ Speed restriction lifted once separation is safe`
+        ];
+      
+      case "ROUTE_TO_LOOP":
+        return [
+          `🔀 Lock switch points for loop line diversion`,
+          `📻 Radio to Train ${aiResult.reduced_train}: "Divert to loop line ahead"`,
+          `🟡 YELLOW signal at switch point`,
+          `➡️ Train ${aiResult.reduced_train} takes loop line route`,
+          `🟢 Train ${aiResult.priority_train} continues on main line`,
+          `⏱️ Loop line adds ${aiResult.suggested_delay || 5} minutes to journey`,
+          `🔄 Train rejoins main line at next junction`
+        ];
+      
+      case "SPEED_ADJUSTMENT":
+        return [
+          `📉 Reduce Train ${aiResult.reduced_train} to ${aiResult.suggested_speed} km/h`,
+          `📻 Radio notification sent to driver`,
+          `📊 Continuous speed monitoring via track sensors`,
+          `🟢 Train ${aiResult.priority_train} maintains schedule`,
+          `⏱️ Speed reduction for ${Math.ceil((aiResult.suggested_delay || 3) * 2)} minutes`,
+          `✅ Normal speed restored after safe separation achieved`
+        ];
+      
+      case "REVERSE_PRIORITY":
+        return [
+          `⚠️ Priority reversal initiated`,
+          `🟡 YELLOW signal to Train ${aiResult.reduced_train} (now priority)`,
+          `🔴 RED signal to Train ${aiResult.priority_train} (now delayed)`,
+          `📻 Radio: "Priority change - Train ${aiResult.reduced_train} proceeds first"`,
+          `⏱️ Train ${aiResult.priority_train} holds for ${aiResult.suggested_delay || 3} minutes`,
+          `✅ Proceed after Train ${aiResult.reduced_train} clears`
+        ];
+      
+      default:
+        return [
+          `🎯 Resolution action: ${aiResult.decision}`,
+          `📻 Radio notifications sent to affected trains`,
+          `🚦 Signal system updated automatically`,
+          `⏱️ Estimated time to resolution: ${aiResult.suggested_delay || 3} minutes`
+        ];
+    }
+  };
+
+  const actionSteps = getActionSteps();
+
   return (
     <div style={{ fontSize: "13px", lineHeight: "1.8" }}>
-      {/* Main Recommendation */}
+      {/* Main Decision Box */}
       <div style={{
         background: "#eff6ff",
-        padding: "14px",
+        padding: "16px",
         borderRadius: "6px",
         marginBottom: "16px",
         border: "2px solid #3b82f6"
       }}>
         <div style={{
+          fontSize: "18px",
+          fontWeight: "700",
+          color: "#1e40af",
+          marginBottom: "8px",
           display: "flex",
           alignItems: "center",
-          gap: "8px",
-          marginBottom: "10px"
+          gap: "8px"
         }}>
           <span style={{ fontSize: "24px" }}>🎯</span>
-          <strong style={{ fontSize: "16px", color: "#1e40af" }}>
-            Recommended Action: {aiResult.decision}
-          </strong>
+          {aiResult.decision.replace(/_/g, ' ')}
         </div>
         
-        <div style={{ 
-          fontSize: "14px", 
-          color: "#1e3a8a",
-          lineHeight: "1.6",
-          marginBottom: "12px"
-        }}>
+        <div style={{ fontSize: "14px", color: "#1e3a8a", marginBottom: "12px", lineHeight: "1.6" }}>
           {aiResult.reason}
         </div>
 
-        {/* Key Details */}
+        {/* Key Details Grid */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(2, 1fr)",
+          gap: "12px",
+          marginTop: "12px"
+        }}>
+          <div style={{
+            background: "white",
+            padding: "10px",
+            borderRadius: "4px",
+            border: "1px solid #bfdbfe"
+          }}>
+            <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "4px" }}>
+              PRIORITY TRAIN
+            </div>
+            <div style={{ fontSize: "15px", fontWeight: "600", color: "#16a34a" }}>
+              {aiResult.priority_train}
+            </div>
+            <div style={{ fontSize: "11px", color: "#15803d", marginTop: "2px" }}>
+              ✓ Proceeds normally
+            </div>
+          </div>
+
+          <div style={{
+            background: "white",
+            padding: "10px",
+            borderRadius: "4px",
+            border: "1px solid #bfdbfe"
+          }}>
+            <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "4px" }}>
+              AFFECTED TRAIN
+            </div>
+            <div style={{ fontSize: "15px", fontWeight: "600", color: "#dc2626" }}>
+              {aiResult.reduced_train}
+            </div>
+            <div style={{ fontSize: "11px", color: "#b91c1c", marginTop: "2px" }}>
+              ⏱️ Delay: {aiResult.suggested_delay || 3} min
+            </div>
+          </div>
+
+          {aiResult.suggested_speed !== undefined && (
+            <div style={{
+              background: "white",
+              padding: "10px",
+              borderRadius: "4px",
+              border: "1px solid #bfdbfe"
+            }}>
+              <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "4px" }}>
+                SPEED LIMIT
+              </div>
+              <div style={{ fontSize: "15px", fontWeight: "600", color: "#d97706" }}>
+                {aiResult.suggested_speed} km/h
+              </div>
+              <div style={{ fontSize: "11px", color: "#92400e", marginTop: "2px" }}>
+                For Train {aiResult.reduced_train}
+              </div>
+            </div>
+          )}
+
+          <div style={{
+            background: "white",
+            padding: "10px",
+            borderRadius: "4px",
+            border: "1px solid #bfdbfe"
+          }}>
+            <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "4px" }}>
+              CONFIDENCE
+            </div>
+            <div style={{ fontSize: "15px", fontWeight: "600", color: "#7c3aed" }}>
+              {aiResult.confidence}%
+            </div>
+            <div style={{ fontSize: "11px", color: "#6b21a8", marginTop: "2px" }}>
+              AI certainty level
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Detailed Action Steps */}
+      <div style={{
+        background: "#f0fdf4",
+        border: "1px solid #86efac",
+        padding: "14px",
+        borderRadius: "6px",
+        marginBottom: "12px"
+      }}>
+        <div style={{ 
+          fontWeight: "600", 
+          color: "#166534", 
+          marginBottom: "10px",
+          fontSize: "14px",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px"
+        }}>
+          <span style={{ fontSize: "18px" }}>⚙️</span>
+          Execution Sequence
+        </div>
         <div style={{
           background: "white",
           padding: "12px",
           borderRadius: "4px",
-          fontSize: "13px"
+          border: "1px solid #bbf7d0"
         }}>
-          <div style={{ marginBottom: "6px" }}>
-            <strong style={{ color: "#1e40af" }}>Priority Train:</strong> {aiResult.priority_train}
-          </div>
-          <div style={{ marginBottom: "6px" }}>
-            <strong style={{ color: "#1e40af" }}>Affected Train:</strong> {aiResult.reduced_train}
-          </div>
-          {aiResult.suggested_speed && (
-            <div style={{ marginBottom: "6px" }}>
-              <strong style={{ color: "#1e40af" }}>Suggested Speed:</strong> {aiResult.suggested_speed} km/h
+          {actionSteps.map((step, index) => (
+            <div 
+              key={index}
+              style={{
+                display: "flex",
+                alignItems: "start",
+                gap: "10px",
+                marginBottom: index < actionSteps.length - 1 ? "10px" : "0",
+                paddingBottom: index < actionSteps.length - 1 ? "10px" : "0",
+                borderBottom: index < actionSteps.length - 1 ? "1px dashed #d1fae5" : "none"
+              }}
+            >
+              <div style={{
+                background: "#16a34a",
+                color: "white",
+                minWidth: "24px",
+                height: "24px",
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "11px",
+                fontWeight: "600"
+              }}>
+                {index + 1}
+              </div>
+              <div style={{ flex: 1, color: "#15803d", fontSize: "13px", paddingTop: "2px" }}>
+                {step}
+              </div>
             </div>
-          )}
-          {aiResult.suggested_delay && (
-            <div style={{ marginBottom: "6px" }}>
-              <strong style={{ color: "#1e40af" }}>Expected Delay:</strong> {aiResult.suggested_delay} minutes
-            </div>
-          )}
+          ))}
         </div>
       </div>
 
       {/* Expected Outcome */}
       <div style={{
-        background: "#f0fdf4",
-        border: "1px solid #86efac",
+        background: "#fef3c7",
+        border: "1px solid #fbbf24",
         padding: "12px",
         borderRadius: "6px"
       }}>
-        <div style={{ fontWeight: "600", color: "#166534", marginBottom: "8px" }}>
+        <div style={{ fontWeight: "600", color: "#92400e", marginBottom: "8px", fontSize: "13px" }}>
           📊 Expected Outcome
         </div>
         <ul style={{ 
           margin: "0", 
           paddingLeft: "20px",
           fontSize: "12px",
-          color: "#15803d",
+          color: "#78350f",
           lineHeight: "1.8"
         }}>
-          <li>Conflict will be safely resolved</li>
-          <li>Priority train {aiResult.priority_train} maintains schedule</li>
-          <li>
-            Train {aiResult.reduced_train} delay: {aiResult.suggested_delay || 3} minutes 
-            {aiResult.suggested_delay && aiResult.suggested_delay <= 5 && " (acceptable)"}
-          </li>
-          <li>Zero safety risk with this approach</li>
-          <li>Minimal impact on overall network flow</li>
+          <li>Conflict will be safely resolved within {aiResult.suggested_delay || 3} minutes</li>
+          <li>Train {aiResult.priority_train} maintains schedule (0 min delay)</li>
+          <li>Train {aiResult.reduced_train} delay: {aiResult.suggested_delay || 3} minutes</li>
+          <li>Zero safety risk - full signal and track protection active</li>
+          <li>Minimal impact on following trains in the network</li>
+          <li>Automated monitoring continues until conflict cleared</li>
         </ul>
       </div>
-
-      {/* What Happens Next */}
-      <div style={{
-        background: "#fef3c7",
-        border: "1px solid #fbbf24",
-        padding: "12px",
-        borderRadius: "6px",
-        marginTop: "12px"
-      }}>
-        <div style={{ fontWeight: "600", color: "#92400e", marginBottom: "8px" }}>
-          ⏭️ What Happens When You Accept
-        </div>
-        <div style={{ fontSize: "12px", color: "#78350f", lineHeight: "1.8" }}>
-          {aiResult.decision === "HOLD_TRAIN" && (
-            <>
-              1. Signal system will set RED for Train {aiResult.reduced_train}<br />
-              2. Radio notification sent to driver automatically<br />
-              3. Train {aiResult.priority_train} clears the block<br />
-              4. Signal automatically changes to GREEN<br />
-              5. Train {aiResult.reduced_train} proceeds safely
-            </>
-          )}
-          {aiResult.decision === "SEQUENCE_AT_JUNCTION" && (
-            <>
-              1. Junction points locked for Train {aiResult.priority_train}<br />
-              2. Route signals set to GREEN for priority entry<br />
-              3. Train {aiResult.reduced_train} receives YELLOW signal<br />
-              4. After {aiResult.suggested_delay || 3} minute clearance, second train proceeds<br />
-              5. Both trains safely through junction
-            </>
-          )}
-          {aiResult.decision === "ROUTE_TO_LOOP" && (
-            <>
-              1. Switch points diverted to LOOP LINE<br />
-              2. Speed reduction signal sent to Train {aiResult.reduced_train}<br />
-              3. Train {aiResult.priority_train} continues on main line<br />
-              4. Affected train uses loop, rejoins main line ahead<br />
-              5. Safe separation maintained throughout
-            </>
-          )}
-          {!["HOLD_TRAIN", "SEQUENCE_AT_JUNCTION", "ROUTE_TO_LOOP"].includes(aiResult.decision) && (
-            <>
-              1. Resolution commands will be sent automatically<br />
-              2. Train operators will be notified<br />
-              3. Signal systems will be updated<br />
-              4. Monitoring will continue until conflict cleared<br />
-              5. System returns to normal operations
-            </>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
 
-// Alternatives Tab
-function AlternativesTab({ aiResult, conflict }) {
-  const alternatives = [
-    {
-      option: "A",
-      title: `Reduce Train ${aiResult.priority_train} Speed`,
-      details: [
-        `• Slow Train ${aiResult.priority_train} to 40-50 km/h`,
-        `• Allows Train ${aiResult.reduced_train} to maintain position`,
-        "• Trade-off: Both trains delayed (2-3 min each)",
-        "• Risk: Medium - requires precise speed coordination"
-      ],
-      color: "#d97706"
-    },
-    {
-      option: "B",
-      title: `Reroute Train ${aiResult.reduced_train} to Loop Line`,
-      details: [
-        "• Divert at next available switch point",
-        "• Uses alternative loop line route",
-        `• Trade-off: 4-6 min longer route for Train ${aiResult.reduced_train}`,
-        "• Risk: Low - completely separates train paths"
-      ],
-      color: "#0284c7"
-    },
-    {
-      option: "C",
-      title: "Hold Both Trains (Conservative)",
-      details: [
-        "• Stop both trains at safe positions",
-        "• Manually sequence after complete stop",
-        "• Trade-off: 8-12 min total delay for both trains",
-        "• Risk: Very Low - maximum safety buffer"
-      ],
-      color: "#7c3aed"
-    },
-    {
-      option: "D",
-      title: "Manual Override & Control",
-      details: [
-        "• Reject AI recommendation entirely",
-        "• Section controller makes all decisions",
-        "• Full manual control of signals and routing",
-        "• Risk: Depends on controller judgment and timing"
-      ],
-      color: "#dc2626"
-    }
-  ];
+function AlternativesTab({ aiResult, selectedAlternative, setSelectedAlternative }) {
+  if (!aiResult.alternatives || aiResult.alternatives.length === 0) {
+    return (
+      <div style={{ textAlign: "center", color: "#64748b", padding: "20px" }}>
+        No alternatives available for this conflict type
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -965,249 +1035,90 @@ function AlternativesTab({ aiResult, conflict }) {
         borderRadius: "6px",
         marginBottom: "16px"
       }}>
-        <div style={{ fontWeight: "600", color: "#1e40af", marginBottom: "8px" }}>
-          🔄 Alternative Solutions Available
-        </div>
-        <div style={{ fontSize: "12px", color: "#1e3a8a" }}>
-          If you choose to reject the AI recommendation, here are other viable options to resolve this conflict:
+        <div style={{ fontSize: "13px", color: "#1e3a8a" }}>
+          Click any alternative to select it, then use "Execute" button to apply it.
         </div>
       </div>
 
-      {alternatives.map((alt, i) => (
-        <div key={i} style={{
-          marginBottom: "12px",
-          padding: "12px",
-          background: "white",
-          borderRadius: "6px",
-          border: `2px solid ${alt.color}`,
-          borderLeft: `6px solid ${alt.color}`
-        }}>
-          <div style={{
-            fontSize: "14px",
-            fontWeight: "600",
-            color: "#0f172a",
-            marginBottom: "8px"
-          }}>
-            <span style={{
-              background: alt.color,
-              color: "white",
-              padding: "3px 10px",
-              borderRadius: "4px",
-              marginRight: "8px",
-              fontSize: "12px"
-            }}>
-              OPTION {alt.option}
-            </span>
-            {alt.title}
-          </div>
-          {alt.details.map((detail, j) => (
-            <div key={j} style={{
-              fontSize: "12px",
-              color: "#475569",
-              marginBottom: "3px",
-              lineHeight: "1.6"
-            }}>
-              {detail}
-            </div>
-          ))}
-        </div>
+      {aiResult.alternatives.map((alt, i) => (
+        <AlternativeOption
+          key={i}
+          alternative={alt}
+          isSelected={selectedAlternative?.option === alt.option}
+          onClick={() => setSelectedAlternative(alt)}
+        />
       ))}
-
-      <div style={{
-        background: "#f0fdf4",
-        border: "2px solid #16a34a",
-        padding: "14px",
-        borderRadius: "6px",
-        marginTop: "16px"
-      }}>
-        <div style={{ fontSize: "14px", color: "#166534" }}>
-          <strong>⚡ Why AI Recommends Option: {aiResult.decision}</strong>
-          <div style={{ fontSize: "13px", marginTop: "8px", lineHeight: "1.6" }}>
-            This solution provides the optimal balance between:
-            <ul style={{ margin: "6px 0 0 0", paddingLeft: "20px" }}>
-              <li>Minimum total delay across all trains</li>
-              <li>Maximum safety with standard procedures</li>
-              <li>Least disruption to overall network</li>
-              <li>Proven effectiveness in similar scenarios</li>
-            </ul>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
 
-// Risks Tab
-function RisksTab({ aiResult }) {
-  const scenarios = [
-    {
-      title: `Driver of Train ${aiResult.reduced_train} doesn't acknowledge`,
-      icon: "📻",
-      actions: [
-        "→ Send 2nd radio call within 15 seconds",
-        "→ If no response: Use emergency brake override signal",
-        "→ Escalate to supervisor if no contact in 30 seconds",
-        "→ Meanwhile: Hold all other trains in vicinity"
-      ],
-      severity: "HIGH"
-    },
-    {
-      title: `Train ${aiResult.reduced_train} doesn't stop in time`,
-      icon: "🚨",
-      actions: [
-        "→ Immediate: Activate track circuit override",
-        `→ Emergency signal to Train ${aiResult.priority_train} to stop`,
-        "→ Alert all trains in adjacent blocks",
-        "→ Activate emergency protocols EP-07",
-        "→ Dispatch emergency response team"
-      ],
-      severity: "CRITICAL"
-    },
-    {
-      title: "Signal system malfunction or failure",
-      icon: "⚡",
-      actions: [
-        "→ Switch immediately to manual flag signaling",
-        "→ Deploy portable signal equipment",
-        "→ Follow emergency procedure EP-12",
-        "→ Notify maintenance team for urgent repair",
-        "→ Update all affected train drivers"
-      ],
-      severity: "HIGH"
-    },
-    {
-      title: `Train ${aiResult.priority_train} experiences delay in block`,
-      icon: "⏱️",
-      actions: [
-        `→ Update estimated clearance time for Train ${aiResult.reduced_train}`,
-        `→ Radio notification to Train ${aiResult.reduced_train} driver`,
-        "→ Monitor position every 30 seconds",
-        "→ Adjust subsequent train schedules if needed",
-        "→ Prepare passenger announcements"
-      ],
-      severity: "MEDIUM"
-    },
-    {
-      title: "Weather or track conditions deteriorate",
-      icon: "🌧️",
-      actions: [
-        "→ Re-evaluate safe speeds for all trains",
-        "→ Increase safety buffers and clearance times",
-        "→ May need to implement Option C (hold both trains)",
-        "→ Continuous monitoring of track sensors",
-        "→ Weather-based protocol activation"
-      ],
-      severity: "MEDIUM"
-    }
-  ];
-
+function AlternativeOption({ alternative, isSelected, onClick }) {
   return (
-    <div>
-      <div style={{
-        background: "#fef3c7",
+    <div 
+      onClick={onClick}
+      style={{
+        marginBottom: "12px",
         padding: "12px",
+        background: isSelected ? "#f0fdf4" : "white",
         borderRadius: "6px",
-        marginBottom: "16px"
+        border: `2px solid ${isSelected ? "#16a34a" : alternative.color}`,
+        borderLeft: `6px solid ${alternative.color}`,
+        cursor: "pointer",
+        transition: "all 0.2s"
+      }}
+    >
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: "8px"
       }}>
-        <div style={{ fontWeight: "600", color: "#92400e", marginBottom: "8px" }}>
-          ⚠️ Risk Mitigation & Emergency Responses
-        </div>
-        <div style={{ fontSize: "12px", color: "#78350f" }}>
-          Prepared contingency plans for potential failure scenarios. These procedures are automated where possible.
-        </div>
-      </div>
-
-      {scenarios.map((scenario, i) => (
-        <div key={i} style={{
-          marginBottom: "14px",
-          padding: "12px",
-          background: "#f8fafc",
-          borderRadius: "6px",
-          border: `1px solid ${getSeverityBorderColor(scenario.severity)}`,
-          borderLeft: `4px solid ${getSeverityBorderColor(scenario.severity)}`
+        <div style={{
+          fontSize: "14px",
+          fontWeight: "600",
+          color: "#0f172a"
         }}>
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            marginBottom: "10px"
-          }}>
-            <span style={{ fontSize: "20px" }}>{scenario.icon}</span>
-            <div style={{ flex: 1 }}>
-              <div style={{
-                fontSize: "13px",
-                fontWeight: "600",
-                color: "#0f172a",
-                marginBottom: "2px"
-              }}>
-                {scenario.title}
-              </div>
-              <span style={{
-                fontSize: "10px",
-                padding: "2px 6px",
-                borderRadius: "3px",
-                background: getSeverityBadgeColor(scenario.severity),
-                color: "white",
-                fontWeight: "600"
-              }}>
-                {scenario.severity} PRIORITY
-              </span>
-            </div>
-          </div>
-          
-          <div style={{
-            background: "white",
-            padding: "10px",
+          <span style={{
+            background: alternative.color,
+            color: "white",
+            padding: "3px 10px",
             borderRadius: "4px",
-            fontSize: "12px"
+            fontSize: "12px",
+            marginRight: "8px"
           }}>
-            {scenario.actions.map((action, j) => (
-              <div key={j} style={{
-                color: "#475569",
-                marginBottom: "4px",
-                paddingLeft: "12px",
-                lineHeight: "1.6"
-              }}>
-                {action}
-              </div>
-            ))}
-          </div>
+            {alternative.option}
+          </span>
+          {alternative.title}
         </div>
-      ))}
+        
+        {isSelected && (
+          <span style={{
+            background: "#16a34a",
+            color: "white",
+            padding: "4px 8px",
+            borderRadius: "12px",
+            fontSize: "11px",
+            fontWeight: "600"
+          }}>
+            SELECTED
+          </span>
+        )}
+      </div>
+
+      <div style={{ fontSize: "13px", color: "#475569", marginBottom: "8px" }}>
+        {alternative.reason}
+      </div>
 
       <div style={{
-        background: "#eff6ff",
-        border: "1px solid #60a5fa",
-        padding: "12px",
-        borderRadius: "6px",
-        marginTop: "16px"
+        display: "flex",
+        gap: "16px",
+        fontSize: "12px",
+        color: "#64748b"
       }}>
-        <div style={{ fontSize: "13px", color: "#1e40af" }}>
-          <strong>🛡️ Safety Note:</strong> All critical scenarios trigger automatic alerts to the control center. 
-          Emergency protocols are pre-loaded in the system and can be activated with one click if needed.
-        </div>
+        <span><strong>Trade-off:</strong> {alternative.tradeoff}</span>
+        <span><strong>Risk:</strong> {alternative.risk}</span>
+        <span><strong>Confidence:</strong> {alternative.confidence}%</span>
       </div>
     </div>
   );
-}
-
-// Helper function for severity colors
-function getSeverityBorderColor(severity) {
-  const colors = {
-    CRITICAL: "#dc2626",
-    HIGH: "#ea580c",
-    MEDIUM: "#d97706",
-    LOW: "#16a34a"
-  };
-  return colors[severity] || "#94a3b8";
-}
-
-function getSeverityBadgeColor(severity) {
-  const colors = {
-    CRITICAL: "#b91c1c",
-    HIGH: "#c2410c",
-    MEDIUM: "#b45309",
-    LOW: "#15803d"
-  };
-  return colors[severity] || "#64748b";
 }

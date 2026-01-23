@@ -1,4 +1,4 @@
-// src/App.jsx (COMPLETE - Fixed Conflict Tracking)
+// src/App.jsx (COMPLETE REPLACEMENT WITH RE-DETECTION)
 import { useState, useEffect } from "react";
 import Login from "./pages/Login";
 import Dashboard from "./components/Dashboard";
@@ -7,6 +7,9 @@ import Conflicts from "./components/Conflicts";
 import HistoryPage from "./pages/HistoryPage";
 import PerformancePage from "./pages/PerformancePage";
 import { timeToMinutes } from "./utils/time";
+import { detectBlockConflicts } from "./utils/blockConflictDetector";
+import { detectLoopLineConflicts } from "./utils/loopLineDetector";
+import { detectJunctionConflicts } from "./utils/junctionConflictDetector";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -32,6 +35,9 @@ function App() {
     resolutionHistory: []
   });
 
+  // ⭐ NEW: Notification state for cascading conflicts
+  const [cascadingNotification, setCascadingNotification] = useState(null);
+
   useEffect(() => {
     console.log("📊 Current State:", {
       trains: trains.length,
@@ -40,6 +46,16 @@ function App() {
       performanceData
     });
   }, [trains, history, page, performanceData]);
+
+  // ⭐ NEW: Show cascading notification and auto-hide after 5 seconds
+  useEffect(() => {
+    if (cascadingNotification) {
+      const timer = setTimeout(() => {
+        setCascadingNotification(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [cascadingNotification]);
 
   function handleClearTrain(trainId) {
     const train = trains.find(t => t.train_id === trainId);
@@ -90,19 +106,16 @@ function App() {
     
     const startTime = performance.now();
     
-    setTrains(prev =>
-      prev.map(t => {
+    setTrains(prev => {
+      const updatedTrains = prev.map(t => {
         if (t.train_id === resolutionDetails.reduced_train) {
-          // Calculate new arrival time based on delay
           const originalArrival = t.arrival || timeToMinutes(t.arrival_time);
           let newDelay = t.delay || 0;
           
-          // Apply delay if junction conflict
           if (resolutionDetails.suggested_delay) {
             newDelay += resolutionDetails.suggested_delay;
           }
           
-          // Apply delay reduction if applicable
           if (resolutionDetails.delayReduction) {
             newDelay = Math.max(0, newDelay - resolutionDetails.delayReduction);
           }
@@ -116,10 +129,10 @@ function App() {
             conflict_reason: `Resolved: ${resolutionDetails.decision}`,
             max_speed: resolutionDetails.suggested_speed || t.max_speed,
             delay: newDelay,
-            arrival: newArrival, // ⭐ UPDATE ARRIVAL TIME
+            arrival: newArrival,
             resolution_applied: resolutionDetails.decision,
             resolution_time: new Date().toLocaleTimeString(),
-            resolved_at: Date.now() // ⭐ TIMESTAMP FOR TRACKING
+            resolved_at: Date.now()
           };
           
           console.log(`🔄 Updated train ${t.train_id}:`, {
@@ -129,8 +142,6 @@ function App() {
             new_delay: updatedTrain.delay,
             old_arrival: originalArrival,
             new_arrival: newArrival,
-            old_status: t.status,
-            new_status: updatedTrain.status,
             resolution: resolutionDetails.decision
           });
           
@@ -143,13 +154,110 @@ function App() {
             status: "ON TIME",
             conflict: false,
             conflict_reason: null,
-            resolved_at: Date.now() // ⭐ MARK AS RESOLVED
+            resolved_at: Date.now()
           };
         }
         
         return t;
-      })
-    );
+      });
+
+      // ⭐ CRITICAL: RE-DETECT CONFLICTS AFTER RESOLUTION
+      console.log("🔍 RE-DETECTING conflicts after resolution...");
+      
+      // Filter out recently resolved trains from conflict detection
+      const trainsToCheck = updatedTrains.filter(t => 
+        t.status !== "RESOLVED" || 
+        !t.resolved_at || 
+        (Date.now() - t.resolved_at) > 5000 // Only exclude if resolved within last 5 seconds
+      );
+      
+      console.log(`🔍 Checking ${trainsToCheck.length} trains (excluding ${updatedTrains.length - trainsToCheck.length} recently resolved)`);
+      
+      const newBlockConflicts = detectBlockConflicts(trainsToCheck);
+      const newLoopConflicts = detectLoopLineConflicts(trainsToCheck);
+      const newJunctionConflicts = detectJunctionConflicts(trainsToCheck);
+      
+      // Filter out conflicts involving the trains we just resolved
+      const justResolvedTrainIds = [resolutionDetails.priority_train, resolutionDetails.reduced_train];
+      
+      const filteredBlockConflicts = newBlockConflicts.filter(c => 
+        !justResolvedTrainIds.includes(c.trainA) && !justResolvedTrainIds.includes(c.trainB)
+      );
+      
+      const filteredLoopConflicts = newLoopConflicts.filter(c => 
+        !justResolvedTrainIds.includes(c.leadingTrain) && !justResolvedTrainIds.includes(c.followingTrain)
+      );
+      
+      const filteredJunctionConflicts = newJunctionConflicts.filter(c => 
+        !justResolvedTrainIds.includes(c.train1) && !justResolvedTrainIds.includes(c.train2)
+      );
+      
+      const totalNewConflicts = filteredBlockConflicts.length + filteredLoopConflicts.length + filteredJunctionConflicts.length;
+      
+      console.log("🔍 Re-detection results:", {
+        blockConflicts: filteredBlockConflicts.length,
+        loopConflicts: filteredLoopConflicts.length,
+        junctionConflicts: filteredJunctionConflicts.length,
+        total: totalNewConflicts,
+        excludedTrains: justResolvedTrainIds
+      });
+
+      if (totalNewConflicts > 0) {
+        console.warn("⚠️ NEW CONFLICTS DETECTED after resolution!");
+        
+        // Show notification to user
+        setCascadingNotification({
+          type: "warning",
+          message: `⚠️ Resolution created ${totalNewConflicts} new conflict(s)! Please review the Conflicts tab.`,
+          conflicts: {
+            block: filteredBlockConflicts.length,
+            loop: filteredLoopConflicts.length,
+            junction: filteredJunctionConflicts.length
+          }
+        });
+
+        // Mark affected trains as IN_CONFLICT again
+        return updatedTrains.map(train => {
+          // Skip the trains we just resolved
+          if (justResolvedTrainIds.includes(train.train_id)) {
+            return train;
+          }
+
+          // Check if this train is in any new conflict
+          const inBlockConflict = filteredBlockConflicts.some(c => 
+            c.trainA === train.train_id || c.trainB === train.train_id
+          );
+          const inLoopConflict = filteredLoopConflicts.some(c => 
+            c.leadingTrain === train.train_id || c.followingTrain === train.train_id
+          );
+          const inJunctionConflict = filteredJunctionConflicts.some(c => 
+            c.train1 === train.train_id || c.train2 === train.train_id
+          );
+
+          if (inBlockConflict || inLoopConflict || inJunctionConflict) {
+            console.log(`⚠️ Train ${train.train_id} now in NEW conflict!`);
+            return {
+              ...train,
+              status: "IN_CONFLICT",
+              conflict: true,
+              conflict_reason: "New conflict detected after previous resolution"
+            };
+          }
+
+          return train;
+        });
+      } else {
+        console.log("✅ No new conflicts detected - resolution was clean!");
+        
+        setCascadingNotification({
+          type: "success",
+          message: "✅ Resolution successful - no new conflicts detected!",
+          conflicts: null
+        });
+
+        return updatedTrains;
+      }
+    });
 
     const endTime = performance.now();
     const resolutionTime = ((endTime - startTime) / 1000).toFixed(3);
@@ -214,26 +322,25 @@ function App() {
       
       switch(conflictType) {
         case 'block':
-          // Only update if detected is higher (for initial detection)
-          if (detected !== undefined && detected > 0) {
-            updates.blockConflictsDetected = Math.max(prev.blockConflictsDetected, detected);
+          // Always update detected count (cumulative)
+          if (detected !== undefined) {
+            updates.blockConflictsDetected = prev.blockConflictsDetected + detected;
           }
-          // Always add to resolved count
           if (resolved > 0) {
             updates.blockConflictsResolved = prev.blockConflictsResolved + resolved;
           }
           break;
         case 'loop':
-          if (detected !== undefined && detected > 0) {
-            updates.loopConflictsDetected = Math.max(prev.loopConflictsDetected, detected);
+          if (detected !== undefined) {
+            updates.loopConflictsDetected = prev.loopConflictsDetected + detected;
           }
           if (resolved > 0) {
             updates.loopConflictsResolved = prev.loopConflictsResolved + resolved;
           }
           break;
         case 'junction':
-          if (detected !== undefined && detected > 0) {
-            updates.junctionConflictsDetected = Math.max(prev.junctionConflictsDetected, detected);
+          if (detected !== undefined) {
+            updates.junctionConflictsDetected = prev.junctionConflictsDetected + detected;
           }
           if (resolved > 0) {
             updates.junctionConflictsResolved = prev.junctionConflictsResolved + resolved;
@@ -241,7 +348,7 @@ function App() {
           break;
       }
       
-      // Update total counts
+      // Update total detected conflicts
       updates.totalConflictsDetected = 
         updates.blockConflictsDetected + 
         updates.loopConflictsDetected + 
@@ -258,7 +365,8 @@ function App() {
           loopResolved: updates.loopConflictsResolved,
           junctionDetected: updates.junctionConflictsDetected,
           junctionResolved: updates.junctionConflictsResolved,
-          totalDetected: updates.totalConflictsDetected
+          totalDetected: updates.totalConflictsDetected,
+          totalResolved: updates.totalConflictsResolved
         }
       });
       
@@ -270,6 +378,99 @@ function App() {
 
   return (
     <Layout setPage={setPage} currentPage={page}>
+      {/* ⭐ NEW: Cascading Conflict Notification */}
+      {cascadingNotification && (
+        <div style={{
+          position: "fixed",
+          top: "20px",
+          right: "20px",
+          zIndex: 9999,
+          maxWidth: "400px",
+          background: cascadingNotification.type === "success" ? "#dcfce7" : "#fef3c7",
+          border: `2px solid ${cascadingNotification.type === "success" ? "#16a34a" : "#fbbf24"}`,
+          padding: "16px",
+          borderRadius: "10px",
+          boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
+          animation: "slideIn 0.3s ease-out"
+        }}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "start",
+            marginBottom: "8px"
+          }}>
+            <strong style={{ 
+              color: cascadingNotification.type === "success" ? "#166534" : "#92400e",
+              fontSize: "15px"
+            }}>
+              {cascadingNotification.type === "success" ? "✅ Success" : "⚠️ Warning"}
+            </strong>
+            <button
+              onClick={() => setCascadingNotification(null)}
+              style={{
+                background: "transparent",
+                border: "none",
+                fontSize: "18px",
+                cursor: "pointer",
+                padding: "0",
+                color: cascadingNotification.type === "success" ? "#166534" : "#92400e"
+              }}
+            >
+              ×
+            </button>
+          </div>
+          
+          <div style={{ 
+            fontSize: "14px", 
+            color: cascadingNotification.type === "success" ? "#15803d" : "#78350f",
+            marginBottom: "12px"
+          }}>
+            {cascadingNotification.message}
+          </div>
+
+          {cascadingNotification.conflicts && (
+            <div style={{
+              background: "white",
+              padding: "10px",
+              borderRadius: "6px",
+              fontSize: "13px",
+              color: "#0f172a"
+            }}>
+              <strong>New Conflicts:</strong>
+              <ul style={{ margin: "6px 0 0 0", paddingLeft: "20px" }}>
+                {cascadingNotification.conflicts.block > 0 && (
+                  <li>Block conflicts: {cascadingNotification.conflicts.block}</li>
+                )}
+                {cascadingNotification.conflicts.loop > 0 && (
+                  <li>Loop line conflicts: {cascadingNotification.conflicts.loop}</li>
+                )}
+                {cascadingNotification.conflicts.junction > 0 && (
+                  <li>Junction conflicts: {cascadingNotification.conflicts.junction}</li>
+                )}
+              </ul>
+              
+              <button
+                onClick={() => setPage("conflicts")}
+                style={{
+                  marginTop: "8px",
+                  width: "100%",
+                  padding: "8px",
+                  background: "#dc2626",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: "600"
+                }}
+              >
+                Go to Conflicts Tab
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {page === "dashboard" && (
         <Dashboard 
           trains={trains} 
@@ -301,6 +502,19 @@ function App() {
           trains={trains}
         />
       )}
+
+      <style>{`
+        @keyframes slideIn {
+          from {
+            transform: translateX(400px);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+      `}</style>
     </Layout>
   );
 }

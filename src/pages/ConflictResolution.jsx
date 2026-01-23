@@ -1,4 +1,4 @@
-// src/pages/ConflictResolution.jsx (NEW - Analytics & Status Panel)
+// src/pages/ConflictResolution.jsx (COMPLETE REPLACEMENT)
 import { useState, useEffect } from "react";
 import Conflicts from "../components/Conflicts";
 
@@ -7,7 +7,10 @@ export default function ConflictResolution({
   onAcceptResolution, 
   onRejectResolution,
   onUpdateConflictCounts,
-  performanceData 
+  performanceData,
+  showOnlyNewConflicts = false,
+  newConflictIds = new Set(),
+  onClearNewConflictFilter
 }) {
   const [systemHealth, setSystemHealth] = useState("OPTIMAL");
   const [recentDecisions, setRecentDecisions] = useState([]);
@@ -45,14 +48,120 @@ export default function ConflictResolution({
   return (
     <div style={{ padding: "20px" }}>
       {/* Header */}
-      <div style={{ marginBottom: "24px" }}>
-        <h2 style={{ margin: 0, color: "#0a2540" }}>
-          🚦 Conflict Resolution Center
-        </h2>
-        <p style={{ margin: "4px 0 0 0", color: "#64748b" }}>
-          AI-powered conflict detection and resolution system
-        </p>
+      <div style={{ 
+        marginBottom: "24px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center"
+      }}>
+        <div>
+          <h2 style={{ margin: 0, color: "#0a2540" }}>
+            🚦 Conflict Resolution Center
+          </h2>
+          <p style={{ margin: "4px 0 0 0", color: "#64748b" }}>
+            AI-powered conflict detection and resolution system
+          </p>
+        </div>
+
+        {/* Show All Conflicts Button */}
+        {showOnlyNewConflicts && (
+          <button
+            onClick={onClearNewConflictFilter}
+            style={{
+              padding: "10px 20px",
+              background: "#0284c7",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: "15px",
+              fontWeight: "600",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
+            }}
+            onMouseEnter={(e) => e.target.style.background = "#0369a1"}
+            onMouseLeave={(e) => e.target.style.background = "#0284c7"}
+          >
+            <span style={{ fontSize: "18px" }}>🔄</span>
+            Show All Conflicts
+          </button>
+        )}
       </div>
+
+      {/* NEW CONFLICTS BANNER */}
+      {showOnlyNewConflicts && (
+        <div style={{
+          background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
+          border: "3px solid #fbbf24",
+          padding: "20px",
+          borderRadius: "12px",
+          marginBottom: "24px",
+          boxShadow: "0 4px 12px rgba(251, 191, 36, 0.3)"
+        }}>
+          <div style={{
+            display: "flex",
+            alignItems: "start",
+            gap: "16px"
+          }}>
+            <div style={{
+              fontSize: "48px",
+              lineHeight: 1
+            }}>
+              ⚠️
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{
+                fontSize: "20px",
+                fontWeight: "700",
+                color: "#92400e",
+                marginBottom: "8px"
+              }}>
+                Showing Only NEW Conflicts
+              </div>
+              <div style={{
+                fontSize: "15px",
+                color: "#78350f",
+                lineHeight: "1.6",
+                marginBottom: "12px"
+              }}>
+                These conflicts were <strong>created by your last resolution</strong>. 
+                The system automatically filtered the view to show only cascading conflicts 
+                that need your attention. Resolve them iteratively to clear the system.
+              </div>
+              <div style={{
+                display: "flex",
+                gap: "12px",
+                flexWrap: "wrap"
+              }}>
+                <div style={{
+                  background: "white",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  color: "#92400e",
+                  border: "1px solid #fbbf24"
+                }}>
+                  📊 New Conflicts: {newConflictIds.size}
+                </div>
+                <div style={{
+                  background: "white",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  color: "#15803d",
+                  border: "1px solid #86efac"
+                }}>
+                  ✅ Already Resolved: {resolvedTrains.length}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Grid */}
       <div style={{
@@ -67,6 +176,8 @@ export default function ConflictResolution({
             onAcceptResolution={onAcceptResolution}
             onRejectResolution={onRejectResolution}
             onUpdateConflictCounts={onUpdateConflictCounts}
+            showOnlyNewConflicts={showOnlyNewConflicts}
+            newConflictIds={newConflictIds}
           />
         </div>
 
