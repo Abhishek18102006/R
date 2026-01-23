@@ -1,4 +1,4 @@
-// src/pages/PerformancePage.jsx (FIXED - Real Dynamic Values)
+// src/pages/PerformancePage.jsx (FIXED - Correct Resolution Rate Calculation)
 import { useState, useEffect } from "react";
 
 export default function PerformancePage({ performanceData, history, trains }) {
@@ -20,13 +20,20 @@ export default function PerformancePage({ performanceData, history, trains }) {
     resolutionHistory = []
   } = performanceData;
 
-  // ⭐ CALCULATE REAL AI ACCURACY RATE
-  const aiAccuracyRate = totalConflictsDetected > 0
-    ? Math.round((totalConflictsResolved / totalConflictsDetected) * 100)
-    : 0;
+  // ⭐ FIXED: Calculate resolution rate correctly
+  // Resolution rate = (resolved / (resolved + rejected)) * 100
+  // If nothing resolved or rejected yet, show 0%
+  const totalProcessed = totalConflictsResolved + totalConflictsRejected;
+  const resolutionRate = totalProcessed > 0 
+    ? ((totalConflictsResolved / totalProcessed) * 100).toFixed(1)
+    : totalConflictsResolved > 0 ? "100.0" : "0.0";
+
+  // ⭐ FIXED: AI Accuracy Rate based on successful resolutions
+  const aiAccuracyRate = totalProcessed > 0
+    ? Math.round((totalConflictsResolved / totalProcessed) * 100)
+    : totalConflictsResolved > 0 ? 100 : 0;
 
   // ⭐ CALCULATE REAL THROUGHPUT IMPROVEMENT
-  // Based on: delay saved, conflicts resolved, and train efficiency
   const throughputImprovement = (() => {
     if (totalConflictsResolved === 0) return 0;
     
@@ -39,11 +46,6 @@ export default function PerformancePage({ performanceData, history, trains }) {
     return Math.min(100, baseImprovement + delayImprovement);
   })();
 
-  // Calculate derived metrics
-  const resolutionRate = totalConflictsDetected > 0 
-    ? ((totalConflictsResolved / totalConflictsDetected) * 100).toFixed(1)
-    : 0;
-
   const activeConflicts = trains.filter(t => 
     t.conflict || 
     t.status === "IN_CONFLICT" || 
@@ -54,9 +56,10 @@ export default function PerformancePage({ performanceData, history, trains }) {
     ? (totalDelayReduced / totalConflictsResolved).toFixed(1)
     : 0;
 
-  const systemEfficiency = totalConflictsDetected > 0
-    ? Math.min(100, (totalConflictsResolved / totalConflictsDetected) * 100).toFixed(1)
-    : 0;
+  // ⭐ FIXED: System efficiency based on total conflicts handled
+  const systemEfficiency = totalProcessed > 0
+    ? Math.min(100, (totalConflictsResolved / totalProcessed) * 100).toFixed(1)
+    : totalConflictsResolved > 0 ? "100.0" : "0.0";
 
   const systemStatus = activeConflicts > 0 ? "MANAGING" : "OPTIMAL";
 
@@ -144,7 +147,7 @@ export default function PerformancePage({ performanceData, history, trains }) {
             label="AI Accuracy Rate" 
             value={`${aiAccuracyRate}%`}
             valueColor="#16a34a"
-            tooltip="Based on successful resolutions vs total conflicts"
+            tooltip="Successful resolutions / Total processed conflicts"
           />
           <MetricRow 
             label="Average Delay Reduction" 
@@ -164,7 +167,7 @@ export default function PerformancePage({ performanceData, history, trains }) {
             label="Overall Efficiency" 
             value={`${systemEfficiency}%`}
             valueColor="#16a34a"
-            tooltip="Conflicts resolved vs conflicts detected"
+            tooltip="Resolved / (Resolved + Rejected)"
           />
           <MetricRow 
             label="Active Conflicts" 
@@ -233,10 +236,13 @@ export default function PerformancePage({ performanceData, history, trains }) {
           </h3>
           <div style={{ fontSize: "13px", color: "#1e40af", lineHeight: "1.8" }}>
             <div style={{ marginBottom: "8px" }}>
-              <strong>AI Accuracy Rate:</strong> {totalConflictsResolved} resolved ÷ {totalConflictsDetected} detected = <strong>{aiAccuracyRate}%</strong>
+              <strong>Resolution Rate:</strong> {totalConflictsResolved} resolved ÷ ({totalConflictsResolved} resolved + {totalConflictsRejected} rejected) = <strong>{resolutionRate}%</strong>
             </div>
             <div style={{ marginBottom: "8px" }}>
-              <strong>Throughput Improvement:</strong> 
+              <strong>AI Accuracy Rate:</strong> {totalConflictsResolved} resolved ÷ {totalProcessed} total processed = <strong>{aiAccuracyRate}%</strong>
+            </div>
+            <div style={{ marginBottom: "8px" }}>
+              <strong>Throughput Improvement:</strong>
               <ul style={{ margin: "4px 0 0 20px", padding: 0 }}>
                 <li>Base: {totalConflictsResolved} conflicts × 5% = {Math.min(50, totalConflictsResolved * 5)}%</li>
                 <li>Delay bonus: {totalDelayReduced} min ÷ 2 = {Math.min(50, Math.floor(totalDelayReduced / 2))}%</li>
@@ -244,7 +250,7 @@ export default function PerformancePage({ performanceData, history, trains }) {
               </ul>
             </div>
             <div>
-              <strong>System Efficiency:</strong> {totalConflictsResolved} resolved ÷ {totalConflictsDetected} detected = <strong>{systemEfficiency}%</strong>
+              <strong>System Efficiency:</strong> {totalConflictsResolved} resolved ÷ {totalProcessed} processed = <strong>{systemEfficiency}%</strong>
             </div>
           </div>
         </div>
