@@ -1,9 +1,9 @@
-// src/App.jsx (COMPLETE REPLACEMENT WITH RE-DETECTION)
+// src/App.jsx (COMPLETE REPLACEMENT - WITH CASCADING CONFLICT DETECTION)
 import { useState, useEffect } from "react";
 import Login from "./pages/Login";
 import Dashboard from "./components/Dashboard";
 import Layout from "./components/Layout";
-import Conflicts from "./components/Conflicts";
+import ConflictResolution from "./pages/ConflictResolution";
 import HistoryPage from "./pages/HistoryPage";
 import PerformancePage from "./pages/PerformancePage";
 import { timeToMinutes } from "./utils/time";
@@ -35,7 +35,9 @@ function App() {
     resolutionHistory: []
   });
 
-  // ⭐ NEW: Notification state for cascading conflicts
+  // ⭐ NEW: Track cascading conflicts (conflicts created by AI resolutions)
+  const [showOnlyNewConflicts, setShowOnlyNewConflicts] = useState(false);
+  const [newConflictIds, setNewConflictIds] = useState(new Set());
   const [cascadingNotification, setCascadingNotification] = useState(null);
 
   useEffect(() => {
@@ -43,11 +45,13 @@ function App() {
       trains: trains.length,
       history: history.length,
       page,
-      performanceData
+      performanceData,
+      showOnlyNewConflicts,
+      newConflictIds: newConflictIds.size
     });
-  }, [trains, history, page, performanceData]);
+  }, [trains, history, page, performanceData, showOnlyNewConflicts, newConflictIds]);
 
-  // ⭐ NEW: Show cascading notification and auto-hide after 5 seconds
+  // Auto-hide notification after 5 seconds
   useEffect(() => {
     if (cascadingNotification) {
       const timer = setTimeout(() => {
@@ -205,16 +209,38 @@ function App() {
       if (totalNewConflicts > 0) {
         console.warn("⚠️ NEW CONFLICTS DETECTED after resolution!");
         
-        // Show notification to user
+        // ⭐ Track new conflict IDs for filtering
+        const newIds = new Set();
+        
+        // Build conflict IDs
+        filteredBlockConflicts.forEach(c => {
+          newIds.add(`block_${c.trainA}_${c.trainB}`);
+        });
+        filteredLoopConflicts.forEach(c => {
+          newIds.add(`loop_${c.leadingTrain}_${c.followingTrain}`);
+        });
+        filteredJunctionConflicts.forEach(c => {
+          newIds.add(`junction_${c.train1}_${c.train2}`);
+        });
+        
+        setNewConflictIds(newIds);
+        setShowOnlyNewConflicts(true);
+        
+        // Show notification to user with auto-navigation
         setCascadingNotification({
           type: "warning",
-          message: `⚠️ Resolution created ${totalNewConflicts} new conflict(s)! Please review the Conflicts tab.`,
+          message: `⚠️ Resolution created ${totalNewConflicts} new conflict(s)! Redirecting to Conflicts tab...`,
           conflicts: {
             block: filteredBlockConflicts.length,
             loop: filteredLoopConflicts.length,
             junction: filteredJunctionConflicts.length
           }
         });
+
+        // Auto-navigate to conflicts page after 1 second
+        setTimeout(() => {
+          setPage("conflicts");
+        }, 1000);
 
         // Mark affected trains as IN_CONFLICT again
         return updatedTrains.map(train => {
@@ -240,7 +266,8 @@ function App() {
               ...train,
               status: "IN_CONFLICT",
               conflict: true,
-              conflict_reason: "New conflict detected after previous resolution"
+              conflict_reason: "New conflict detected after previous resolution",
+              is_cascading_conflict: true // Mark as cascading
             };
           }
 
@@ -248,6 +275,10 @@ function App() {
         });
       } else {
         console.log("✅ No new conflicts detected - resolution was clean!");
+        
+        // Clear cascading filter
+        setShowOnlyNewConflicts(false);
+        setNewConflictIds(new Set());
         
         setCascadingNotification({
           type: "success",
@@ -322,7 +353,6 @@ function App() {
       
       switch(conflictType) {
         case 'block':
-          // Always update detected count (cumulative)
           if (detected !== undefined) {
             updates.blockConflictsDetected = prev.blockConflictsDetected + detected;
           }
@@ -348,7 +378,6 @@ function App() {
           break;
       }
       
-      // Update total detected conflicts
       updates.totalConflictsDetected = 
         updates.blockConflictsDetected + 
         updates.loopConflictsDetected + 
@@ -448,24 +477,6 @@ function App() {
                   <li>Junction conflicts: {cascadingNotification.conflicts.junction}</li>
                 )}
               </ul>
-              
-              <button
-                onClick={() => setPage("conflicts")}
-                style={{
-                  marginTop: "8px",
-                  width: "100%",
-                  padding: "8px",
-                  background: "#dc2626",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontSize: "13px",
-                  fontWeight: "600"
-                }}
-              >
-                Go to Conflicts Tab
-              </button>
             </div>
           )}
         </div>
@@ -483,11 +494,15 @@ function App() {
       )}
 
       {page === "conflicts" && (
-        <Conflicts
+        <ConflictResolution
           trains={trains}
           onAcceptResolution={handleAcceptResolution}
           onRejectResolution={handleRejectResolution}
           onUpdateConflictCounts={updateConflictCounts}
+          performanceData={performanceData}
+          showOnlyNewConflicts={showOnlyNewConflicts}
+          newConflictIds={newConflictIds}
+          onClearNewConflictFilter={() => setShowOnlyNewConflicts(false)}
         />
       )}
 

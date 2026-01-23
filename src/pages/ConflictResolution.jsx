@@ -1,4 +1,4 @@
-// src/pages/ConflictResolution.jsx (COMPLETE REPLACEMENT)
+// src/pages/ConflictResolution.jsx (COMPLETE REPLACEMENT - WITH CASCADING BANNER)
 import { useState, useEffect } from "react";
 import Conflicts from "../components/Conflicts";
 
@@ -63,7 +63,7 @@ export default function ConflictResolution({
           </p>
         </div>
 
-        {/* Show All Conflicts Button */}
+        {/* ⭐ Show All Conflicts Button */}
         {showOnlyNewConflicts && (
           <button
             onClick={onClearNewConflictFilter}
@@ -90,7 +90,7 @@ export default function ConflictResolution({
         )}
       </div>
 
-      {/* NEW CONFLICTS BANNER */}
+      {/* ⭐ NEW CONFLICTS BANNER */}
       {showOnlyNewConflicts && (
         <div style={{
           background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
